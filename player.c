@@ -8,6 +8,7 @@
 #include "player.h"
 #include "logic.h"
 #include <time.h>
+#include <signal.h>
 #include <sys/wait.h>
 
 /* ANSI escape codes for terminal control */
@@ -25,17 +26,22 @@
 /**
  * set_terminal_mode - Sets terminal to raw mode for single character input
  */
-void set_terminal_mode(struct termios *orig_termios) {
+int set_terminal_mode(struct termios *orig_termios) {
     struct termios new_termios;
 
-    tcgetattr(STDIN_FILENO, orig_termios);
+    if (tcgetattr(STDIN_FILENO, orig_termios) != 0) {
+        return 0;
+    }
     new_termios = *orig_termios;
 
     new_termios.c_lflag &= ~((unsigned int)(ICANON | ECHO));
     new_termios.c_cc[VMIN] = 1;
     new_termios.c_cc[VTIME] = 0;
 
-    tcsetattr(STDIN_FILENO, TCSANOW, &new_termios);
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &new_termios) != 0) {
+        return 0;
+    }
+    return 1;
 }
 
 /**
@@ -48,13 +54,13 @@ void restore_terminal_mode(struct termios *orig_termios) {
 /**
  * get_char - Reads a single character from stdin
  */
-char get_char(void) {
+int get_char(void) {
     char ch;
     ssize_t bytes_read = read(STDIN_FILENO, &ch, 1);
     if (bytes_read > 0) {
-        return ch;
+        return (unsigned char)ch;
     }
-    return 0;
+    return -1;
 }
 
 /**
@@ -127,7 +133,7 @@ void display_game(GameState *state) {
 
     write(STDOUT_FILENO, "+", 1);
     for (j = 0; j < (*state).cols; j++) {
-        write(STDOUT_FILENO, "--", 2);
+        write(STDOUT_FILENO, "-", 1);
     }
     write(STDOUT_FILENO, "+\n", 2);
 
@@ -141,7 +147,7 @@ void display_game(GameState *state) {
 
     write(STDOUT_FILENO, "+", 1);
     for (j = 0; j < (*state).cols; j++) {
-        write(STDOUT_FILENO, "--", 2);
+        write(STDOUT_FILENO, "-", 1);
     }
     write(STDOUT_FILENO, "+\n", 2);
 
@@ -279,19 +285,26 @@ void enemy_process(GameState *state, int is_snake, const char *state_filename) {
  */
 void parent_process(GameState *state, const char *state_filename, pid_t snake_pid, pid_t wolf_pid) {
     struct termios orig_termios;
-    char ch;
+    int ch;
     int moved;
     int fd;
     int status;
     int direction;
     int quit_requested;
     int game_over = 0;
+    int terminal_configured;
 
-    set_terminal_mode(&orig_termios);
+    terminal_configured = set_terminal_mode(&orig_termios);
 
     fd = open(state_filename, O_RDWR);
     if (fd < 0) {
-        restore_terminal_mode(&orig_termios);
+        if (terminal_configured) {
+            restore_terminal_mode(&orig_termios);
+        }
+        kill(snake_pid, SIGTERM);
+        kill(wolf_pid, SIGTERM);
+        waitpid(snake_pid, &status, 0);
+        waitpid(wolf_pid, &status, 0);
         return;
     }
 
@@ -308,6 +321,7 @@ void parent_process(GameState *state, const char *state_filename, pid_t snake_pi
             case 'a': case 'A': direction = DIR_LEFT;  break;
             case 'd': case 'D': direction = DIR_RIGHT; break;
             case 'q': case 'Q': quit_requested = 1;     break;
+            case -1: quit_requested = 1;                 break;
             default: break;
         }
 
@@ -350,7 +364,9 @@ void parent_process(GameState *state, const char *state_filename, pid_t snake_pi
     display_game(state);
     close(fd);
 
-    restore_terminal_mode(&orig_termios);
+    if (terminal_configured) {
+        restore_terminal_mode(&orig_termios);
+    }
 
     waitpid(snake_pid, &status, 0);
     waitpid(wolf_pid, &status, 0);

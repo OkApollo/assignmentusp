@@ -5,6 +5,7 @@
 
 #include "logic.h"
 #include <stdlib.h>
+#include <limits.h>
 
 /* ============================================================
  * UTILITY FUNCTIONS (custom implementations of banned functions)
@@ -25,7 +26,8 @@ int my_strlen(const char *str) {
  * my_atoi - Custom implementation of atoi
  */
 int my_atoi(const char *str) {
-    int result = 0;
+    unsigned int result = 0;
+    unsigned int limit;
     int sign = 1;
     int i = 0;
 
@@ -36,12 +38,25 @@ int my_atoi(const char *str) {
         i = 1;
     }
 
+    limit = (sign < 0) ? (unsigned int)INT_MAX + 1U : (unsigned int)INT_MAX;
+
     while (str[i] >= '0' && str[i] <= '9') {
-        result = result * 10 + (str[i] - '0');
+        unsigned int digit = (unsigned int)(str[i] - '0');
+        if (result > (limit - digit) / 10U) {
+            result = limit;
+        } else {
+            result = result * 10U + digit;
+        }
         i++;
     }
 
-    return sign * result;
+    if (sign < 0) {
+        if (result == (unsigned int)INT_MAX + 1U) {
+            return INT_MIN;
+        }
+        return -(int)result;
+    }
+    return (int)result;
 }
 
 /**
@@ -51,22 +66,25 @@ void my_itoa(int num, char *str) {
     int i = 0;
     int is_negative = 0;
     int start, end;
+    unsigned int magnitude;
     char temp;
 
     if (num < 0) {
         is_negative = 1;
-        num = -num;
+        magnitude = (unsigned int)(-(num + 1)) + 1U;
+    } else {
+        magnitude = (unsigned int)num;
     }
 
-    if (num == 0) {
+    if (magnitude == 0U) {
         str[i++] = '0';
         str[i] = '\0';
         return;
     }
 
-    while (num > 0) {
-        str[i++] = (char)('0' + (num % 10));
-        num /= 10;
+    while (magnitude > 0U) {
+        str[i++] = (char)('0' + (magnitude % 10U));
+        magnitude /= 10U;
     }
 
     if (is_negative) {
@@ -122,7 +140,11 @@ int read_line(int fd, char *buffer, int max_len) {
     ssize_t bytes_read;
     int consumed_any = 0;
 
-    while (i < max_len - 1) {
+    if (max_len <= 0) {
+        return -1;
+    }
+
+    while (1) {
         bytes_read = read(fd, &ch, 1);
         if (bytes_read <= 0) {
             break;
@@ -131,8 +153,10 @@ int read_line(int fd, char *buffer, int max_len) {
         if (ch == '\n') {
             break;
         }
-        buffer[i] = ch;
-        i++;
+        if (i < max_len - 1) {
+            buffer[i] = ch;
+            i++;
+        }
     }
     buffer[i] = '\0';
 
@@ -148,28 +172,29 @@ int read_line(int fd, char *buffer, int max_len) {
 int parse_integers(const char *line, int *numbers, int max_count) {
     int count = 0;
     int i = 0;
-    char num_str[32];
-    int num_idx = 0;
     int in_num = 0;
+    int value = 0;
 
     while (line[i] != '\0' && count < max_count) {
         if (line[i] >= '0' && line[i] <= '9') {
-            num_str[num_idx] = line[i];
-            num_idx++;
+            int digit = line[i] - '0';
+            if (value > (INT_MAX - digit) / 10) {
+                value = INT_MAX;
+            } else {
+                value = value * 10 + digit;
+            }
             in_num = 1;
         } else if (in_num) {
-            num_str[num_idx] = '\0';
-            numbers[count] = my_atoi(num_str);
+            numbers[count] = value;
             count++;
-            num_idx = 0;
             in_num = 0;
+            value = 0;
         }
         i++;
     }
 
     if (in_num && count < max_count) {
-        num_str[num_idx] = '\0';
-        numbers[count] = my_atoi(num_str);
+        numbers[count] = value;
         count++;
     }
 
@@ -200,7 +225,11 @@ int is_valid_position_for_enemy(GameState *state, int row, int col) {
     if (row < 0 || row >= (*state).rows || col < 0 || col >= (*state).cols) {
         return 0;
     }
-    if ((*state).grid[row][col] == WALL || (*state).grid[row][col] == GOAL) {
+    /* Enemies cannot occupy the goal or each other's square.  Allowing an
+     * enemy to overwrite another enemy made its tracked position disagree
+     * with the grid, which could subsequently corrupt later moves. */
+    if ((*state).grid[row][col] == WALL || (*state).grid[row][col] == GOAL ||
+        (*state).grid[row][col] == SNAKE || (*state).grid[row][col] == WOLF) {
         return 0;
     }
     return 1;

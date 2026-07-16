@@ -11,9 +11,9 @@
 #include <sys/types.h>
 
 /* Function prototypes */
-void set_terminal_mode(struct termios *orig_termios);
+int set_terminal_mode(struct termios *orig_termios);
 void restore_terminal_mode(struct termios *orig_termios);
-char get_char(void);
+int get_char(void);
 void clear_screen(void);
 void print_character(int obj_code);
 void display_game(GameState *state);

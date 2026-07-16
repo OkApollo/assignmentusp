@@ -52,6 +52,7 @@ int main(int argc, char *argv[]) {
         if (fd >= 0) {
             close(fd);
         }
+        unlink(STATE_FILE);
         free_game_state(state);
         return 1;
     }
@@ -66,6 +67,7 @@ int main(int argc, char *argv[]) {
     if (snake_pid < 0) {
         const char *err = "Error: Fork failed for Snake\n";
         write(STDOUT_FILENO, err, my_strlen(err));
+        unlink(STATE_FILE);
         free_game_state(state);
         return 1;
     }
@@ -83,6 +85,7 @@ int main(int argc, char *argv[]) {
         write(STDOUT_FILENO, err, my_strlen(err));
         kill(snake_pid, SIGTERM);
         waitpid(snake_pid, &status, 0);
+        unlink(STATE_FILE);
         free_game_state(state);
         return 1;
     }

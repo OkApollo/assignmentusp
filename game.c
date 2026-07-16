@@ -15,6 +15,10 @@ GameState *create_game_state(int rows, int cols) {
     GameState *state;
     int i;
 
+    if (rows <= 0 || cols <= 0 || rows > MAX_ROWS || cols > MAX_COLS) {
+        return NULL;
+    }
+
     state = (GameState *)malloc(sizeof(GameState));
     if (!state) {
         return NULL;
@@ -23,6 +27,10 @@ GameState *create_game_state(int rows, int cols) {
     (*state).rows = rows;
     (*state).cols = cols;
     (*state).game_state = GAME_ONGOING;
+    (*state).player.row = (*state).player.col = -1;
+    (*state).goal.row = (*state).goal.col = -1;
+    (*state).snake.row = (*state).snake.col = -1;
+    (*state).wolf.row = (*state).wolf.col = -1;
 
     (*state).grid = (int **)malloc((size_t)rows * sizeof(int *));
     if (!(*state).grid) {
@@ -84,6 +92,10 @@ GameState *load_map(const char *filename) {
     int rows, cols;
     int game_state;
     int idx;
+    int player_count = 0;
+    int goal_count = 0;
+    int snake_count = 0;
+    int wolf_count = 0;
 
     fd = open(filename, O_RDONLY);
     if (fd < 0) {
@@ -91,12 +103,23 @@ GameState *load_map(const char *filename) {
     }
 
     /* Line 1: game state */
-    read_line(fd, line, (int)sizeof(line));
+    if (read_line(fd, line, (int)sizeof(line)) < 0) {
+        close(fd);
+        return NULL;
+    }
     game_state = my_atoi(line);
 
+    if (game_state < GAME_ONGOING || game_state > GAME_QUIT) {
+        close(fd);
+        return NULL;
+    }
+
     /* Line 2: rows and cols */
-    read_line(fd, line, (int)sizeof(line));
-    parse_integers(line, numbers, 2);
+    if (read_line(fd, line, (int)sizeof(line)) < 0 ||
+        parse_integers(line, numbers, 2) != 2) {
+        close(fd);
+        return NULL;
+    }
     rows = numbers[0];
     cols = numbers[1];
 
@@ -152,26 +175,40 @@ GameState *load_map(const char *filename) {
 
             switch (numbers[idx]) {
                 case PLAYER:
+                    player_count++;
                     (*state).player.row = i;
                     (*state).player.col = j;
                     break;
                 case GOAL:
+                    goal_count++;
                     (*state).goal.row = i;
                     (*state).goal.col = j;
                     break;
                 case SNAKE:
+                    snake_count++;
                     (*state).snake.row = i;
                     (*state).snake.col = j;
                     break;
                 case WOLF:
+                    wolf_count++;
                     (*state).wolf.row = i;
                     (*state).wolf.col = j;
                     break;
-                default:
+                case EMPTY:
+                case WALL:
                     break;
+                default:
+                    free_game_state(state);
+                    return NULL;
             }
             idx++;
         }
+    }
+
+    /* The three processes rely on all four objects having a unique location. */
+    if (player_count != 1 || goal_count != 1 || snake_count != 1 || wolf_count != 1) {
+        free_game_state(state);
+        return NULL;
     }
 
     return state;
@@ -193,6 +230,7 @@ int write_state_fd(GameState *state, int fd) {
     int offset = 0;
     int len;
     ssize_t written;
+    int bytes_remaining;
 
     total_len = 32 + (*state).rows * (*state).cols * 4;
 
@@ -246,10 +284,20 @@ int write_state_fd(GameState *state, int fd) {
         return 0;
     }
 
-    written = write(fd, write_buf, (size_t)offset);
+    bytes_remaining = offset;
+    written = 0;
+    while (bytes_remaining > 0) {
+        written = write(fd, write_buf + (offset - bytes_remaining),
+                        (size_t)bytes_remaining);
+        if (written <= 0) {
+            free(write_buf);
+            return 0;
+        }
+        bytes_remaining -= (int)written;
+    }
     free(write_buf);
 
-    return (written == offset) ? 1 : 0;
+    return 1;
 }
 
 /**
@@ -273,11 +321,19 @@ int read_state_fd(GameState *state, int fd) {
         return 0;
     }
 
-    read_line(fd, line, (int)sizeof(line));
+    if (read_line(fd, line, (int)sizeof(line)) < 0) {
+        return 0;
+    }
     (*state).game_state = my_atoi(line);
 
-    read_line(fd, line, (int)sizeof(line));
-    parse_integers(line, numbers, 2);
+    if ((*state).game_state < GAME_ONGOING || (*state).game_state > GAME_QUIT) {
+        return 0;
+    }
+
+    if (read_line(fd, line, (int)sizeof(line)) < 0 ||
+        parse_integers(line, numbers, 2) != 2) {
+        return 0;
+    }
     rows = numbers[0];
     cols = numbers[1];
 
@@ -322,8 +378,11 @@ int read_state_fd(GameState *state, int fd) {
                     (*state).wolf.row = i;
                     (*state).wolf.col = j;
                     break;
-                default:
+                case EMPTY:
+                case WALL:
                     break;
+                default:
+                    return 0;
             }
             idx++;
         }
