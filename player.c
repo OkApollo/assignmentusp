@@ -80,9 +80,7 @@ void print_character(int obj_code) {
             write(STDOUT_FILENO, " ", 1);
             break;
         case WALL:
-            write(STDOUT_FILENO, BG_WHITE, my_strlen(BG_WHITE));
-            write(STDOUT_FILENO, " ", 1);
-            write(STDOUT_FILENO, COLOR_RESET, my_strlen(COLOR_RESET));
+            write(STDOUT_FILENO, "*", 1);
             break;
         case PLAYER:
             write(STDOUT_FILENO, FG_GREEN, my_strlen(FG_GREEN));
@@ -113,7 +111,7 @@ void print_character(int obj_code) {
 /**
  * display_game - Displays the game interface
  */
-void display_game(GameState *state) {
+void display_game(GameState *state, int debug_mode) {
     int i, j;
     const char *title        = "=== ESCAPE GAME ===\n";
     const char *instructions = "Use WASD to move Player (P) to Goal (G)\n";
@@ -131,25 +129,48 @@ void display_game(GameState *state) {
     write(STDOUT_FILENO, avoid, my_strlen(avoid));
     write(STDOUT_FILENO, quit_hint, my_strlen(quit_hint));
 
-    write(STDOUT_FILENO, "+", 1);
-    for (j = 0; j < (*state).cols; j++) {
-        write(STDOUT_FILENO, "-", 1);
-    }
-    write(STDOUT_FILENO, "+\n", 2);
-
     for (i = 0; i < (*state).rows; i++) {
-        write(STDOUT_FILENO, "|", 1);
         for (j = 0; j < (*state).cols; j++) {
             print_character((*state).grid[i][j]);
         }
-        write(STDOUT_FILENO, "|\n", 2);
+        write(STDOUT_FILENO, "\n", 1);
     }
 
-    write(STDOUT_FILENO, "+", 1);
-    for (j = 0; j < (*state).cols; j++) {
-        write(STDOUT_FILENO, "-", 1);
+    if (debug_mode) {
+        char number[16];
+        const char *debug_title = "\n--- DEBUG MODE ---\n";
+        const char *player_label = "Player: (";
+        const char *snake_label = "\nSnake: (";
+        const char *wolf_label = "\nWolf: (";
+        const char *moves_label = ") moves=";
+        const char *time_label = " last move=";
+        const char *ms_label = "ms\n";
+
+        write(STDOUT_FILENO, debug_title, my_strlen(debug_title));
+        write(STDOUT_FILENO, player_label, my_strlen(player_label));
+        my_itoa((*state).player.row, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, ",", 1);
+        my_itoa((*state).player.col, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, ")", 1);
+        write(STDOUT_FILENO, snake_label, my_strlen(snake_label));
+        my_itoa((*state).snake.row, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, ",", 1);
+        my_itoa((*state).snake.col, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, moves_label, my_strlen(moves_label));
+        my_itoa((*state).snake_moves, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, time_label, my_strlen(time_label));
+        my_itoa((*state).snake_move_ms, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, ms_label, my_strlen(ms_label));
+        write(STDOUT_FILENO, wolf_label, my_strlen(wolf_label));
+        my_itoa((*state).wolf.row, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, ",", 1);
+        my_itoa((*state).wolf.col, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, moves_label, my_strlen(moves_label));
+        my_itoa((*state).wolf_moves, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, time_label, my_strlen(time_label));
+        my_itoa((*state).wolf_move_ms, number); write(STDOUT_FILENO, number, my_strlen(number));
+        write(STDOUT_FILENO, ms_label, my_strlen(ms_label));
     }
-    write(STDOUT_FILENO, "+\n", 2);
 
     if ((*state).game_state == GAME_WIN) {
         write(STDOUT_FILENO, win_msg, my_strlen(win_msg));
@@ -187,6 +208,8 @@ void enemy_process(GameState *state, int is_snake, const char *state_filename) {
     int candidate_count;
     int d;
     int game_over = 0;
+    struct timespec started_at;
+    struct timespec finished_at;
 
     delay.tv_sec = is_snake ? 2 : 1;
     delay.tv_nsec = 0;
@@ -200,6 +223,7 @@ void enemy_process(GameState *state, int is_snake, const char *state_filename) {
     }
 
     while (!game_over) {
+        clock_gettime(CLOCK_MONOTONIC, &started_at);
         nanosleep(&delay, NULL);
 
         if (flock(fd, LOCK_EX) != 0) {
@@ -265,6 +289,16 @@ void enemy_process(GameState *state, int is_snake, const char *state_filename) {
         }
 
         if (moved) {
+            clock_gettime(CLOCK_MONOTONIC, &finished_at);
+            if (is_snake) {
+                (*state).snake_moves++;
+                (*state).snake_move_ms = (int)((finished_at.tv_sec - started_at.tv_sec) * 1000L +
+                    (finished_at.tv_nsec - started_at.tv_nsec) / 1000000L);
+            } else {
+                (*state).wolf_moves++;
+                (*state).wolf_move_ms = (int)((finished_at.tv_sec - started_at.tv_sec) * 1000L +
+                    (finished_at.tv_nsec - started_at.tv_nsec) / 1000000L);
+            }
             write_state_fd(state, fd);
         }
 
@@ -283,7 +317,8 @@ void enemy_process(GameState *state, int is_snake, const char *state_filename) {
  * the state file exactly once for the whole session, locking and
  * re-reading it before every accepted move.
  */
-void parent_process(GameState *state, const char *state_filename, pid_t snake_pid, pid_t wolf_pid) {
+void parent_process(GameState *state, const char *state_filename, pid_t snake_pid, pid_t wolf_pid,
+                    int debug_mode) {
     struct termios orig_termios;
     int ch;
     int moved;
@@ -309,7 +344,7 @@ void parent_process(GameState *state, const char *state_filename, pid_t snake_pi
     }
 
     while (!game_over) {
-        display_game(state);
+        display_game(state, debug_mode);
 
         ch = get_char();
         direction = -1;
@@ -361,7 +396,7 @@ void parent_process(GameState *state, const char *state_filename, pid_t snake_pi
         }
     }
 
-    display_game(state);
+    display_game(state, debug_mode);
     close(fd);
 
     if (terminal_configured) {

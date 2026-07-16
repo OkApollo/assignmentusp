@@ -31,6 +31,10 @@ GameState *create_game_state(int rows, int cols) {
     (*state).goal.row = (*state).goal.col = -1;
     (*state).snake.row = (*state).snake.col = -1;
     (*state).wolf.row = (*state).wolf.col = -1;
+    (*state).snake_moves = 0;
+    (*state).wolf_moves = 0;
+    (*state).snake_move_ms = 0;
+    (*state).wolf_move_ms = 0;
 
     (*state).grid = (int **)malloc((size_t)rows * sizeof(int *));
     if (!(*state).grid) {
@@ -232,7 +236,7 @@ int write_state_fd(GameState *state, int fd) {
     ssize_t written;
     int bytes_remaining;
 
-    total_len = 32 + (*state).rows * (*state).cols * 4;
+    total_len = 80 + (*state).rows * (*state).cols * 4;
 
     write_buf = (char *)malloc((size_t)total_len);
     if (!write_buf) {
@@ -259,6 +263,27 @@ int write_state_fd(GameState *state, int fd) {
     offset += len;
     write_buf[offset] = '\n';
     offset++;
+
+    my_itoa((*state).snake_moves, buffer);
+    len = my_strlen(buffer);
+    my_strcpy(write_buf + offset, buffer);
+    offset += len;
+    write_buf[offset++] = ' ';
+    my_itoa((*state).wolf_moves, buffer);
+    len = my_strlen(buffer);
+    my_strcpy(write_buf + offset, buffer);
+    offset += len;
+    write_buf[offset++] = ' ';
+    my_itoa((*state).snake_move_ms, buffer);
+    len = my_strlen(buffer);
+    my_strcpy(write_buf + offset, buffer);
+    offset += len;
+    write_buf[offset++] = ' ';
+    my_itoa((*state).wolf_move_ms, buffer);
+    len = my_strlen(buffer);
+    my_strcpy(write_buf + offset, buffer);
+    offset += len;
+    write_buf[offset++] = '\n';
 
     for (i = 0; i < (*state).rows; i++) {
         for (j = 0; j < (*state).cols; j++) {
@@ -316,6 +341,7 @@ int read_state_fd(GameState *state, int fd) {
     int i, j;
     int expected_count;
     int num_count;
+    int debug_numbers[4];
 
     if (lseek(fd, 0, SEEK_SET) < 0) {
         return 0;
@@ -340,6 +366,15 @@ int read_state_fd(GameState *state, int fd) {
     if (rows != (*state).rows || cols != (*state).cols) {
         return 0;
     }
+
+    if (read_line(fd, line, (int)sizeof(line)) < 0 ||
+        parse_integers(line, debug_numbers, 4) != 4) {
+        return 0;
+    }
+    (*state).snake_moves = debug_numbers[0];
+    (*state).wolf_moves = debug_numbers[1];
+    (*state).snake_move_ms = debug_numbers[2];
+    (*state).wolf_move_ms = debug_numbers[3];
 
     expected_count = rows * cols;
     idx = 0;

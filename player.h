@@ -16,8 +16,9 @@ void restore_terminal_mode(struct termios *orig_termios);
 int get_char(void);
 void clear_screen(void);
 void print_character(int obj_code);
-void display_game(GameState *state);
+void display_game(GameState *state, int debug_mode);
 void enemy_process(GameState *state, int is_snake, const char *state_filename);
-void parent_process(GameState *state, const char *state_filename, pid_t snake_pid, pid_t wolf_pid);
+void parent_process(GameState *state, const char *state_filename, pid_t snake_pid, pid_t wolf_pid,
+                    int debug_mode);
 
 #endif /* PLAYER_H */
