@@ -19,10 +19,15 @@ int main(int argc, char *argv[]) {
     int fd;
     pid_t snake_pid, wolf_pid;
     int status;
+    int debug_mode = 0;
 
     /* Validate command line arguments */
-    if (argc != 2) {
-        const char *usage = "Usage: ./escape <map_file>\n";
+    if (argc == 3 && my_strlen(argv[2]) == 5 && argv[2][0] == 'd' &&
+        argv[2][1] == 'e' && argv[2][2] == 'b' && argv[2][3] == 'u' &&
+        argv[2][4] == 'g') {
+        debug_mode = 1;
+    } else if (argc != 2) {
+        const char *usage = "Usage: ./escape <map_file> [debug]\n";
         write(STDOUT_FILENO, usage, my_strlen(usage));
         return 1;
     }
@@ -52,6 +57,7 @@ int main(int argc, char *argv[]) {
         if (fd >= 0) {
             close(fd);
         }
+        unlink(STATE_FILE);
         free_game_state(state);
         return 1;
     }
@@ -66,6 +72,7 @@ int main(int argc, char *argv[]) {
     if (snake_pid < 0) {
         const char *err = "Error: Fork failed for Snake\n";
         write(STDOUT_FILENO, err, my_strlen(err));
+        unlink(STATE_FILE);
         free_game_state(state);
         return 1;
     }
@@ -83,6 +90,7 @@ int main(int argc, char *argv[]) {
         write(STDOUT_FILENO, err, my_strlen(err));
         kill(snake_pid, SIGTERM);
         waitpid(snake_pid, &status, 0);
+        unlink(STATE_FILE);
         free_game_state(state);
         return 1;
     }
@@ -94,7 +102,7 @@ int main(int argc, char *argv[]) {
     }
 
     /* Parent process - run the game with player control */
-    parent_process(state, STATE_FILE, snake_pid, wolf_pid);
+    parent_process(state, STATE_FILE, snake_pid, wolf_pid, debug_mode);
 
     /* Clean up */
     free_game_state(state);

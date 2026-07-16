@@ -48,6 +48,10 @@ typedef struct {
     Position snake;
     Position wolf;
     int game_state;
+    int snake_moves;
+    int wolf_moves;
+    int snake_move_ms;
+    int wolf_move_ms;
 } GameState;
 
 /* Function prototypes */
